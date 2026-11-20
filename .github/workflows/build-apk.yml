@@ -1,0 +1,76 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Capacitor
+        run: npm install
+
+      - name: Create the Android project
+        run: npx cap add android
+
+      - name: Add app icon
+        run: |
+          RES=android/app/src/main/res
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            rm -f $RES/mipmap-$d/ic_launcher*
+            cp icons/ic_launcher_$d.png            $RES/mipmap-$d/ic_launcher.png
+            cp icons/ic_launcher_round_$d.png      $RES/mipmap-$d/ic_launcher_round.png
+            cp icons/ic_launcher_foreground_$d.png $RES/mipmap-$d/ic_launcher_foreground.png
+          done
+          mkdir -p $RES/mipmap-anydpi-v26
+          cat > $RES/values/st_icon_background.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="st_icon_background">#1A1A1A</color>
+          </resources>
+          XML
+          for n in ic_launcher ic_launcher_round; do
+          cat > $RES/mipmap-anydpi-v26/$n.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/st_icon_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          XML
+          done
+
+      - name: Allow vibration (for the Win/Loss buzz)
+        run: |
+          sed -i '/<\/manifest>/i \    <uses-permission android:name="android.permission.VIBRATE" />' android/app/src/main/AndroidManifest.xml
+
+      - name: Copy the web app into Android
+        run: npx cap sync android
+
+      - name: Build the APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: StrategyTracker-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
